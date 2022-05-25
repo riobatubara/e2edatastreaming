@@ -20,6 +20,11 @@
 		"riobatubara"
 	)
 
+	analytic.videoload({
+		videoId: 1,
+		videoName: "Bluemoon"
+	})
+
 	playerInstance.on('play', function() {
 		var bitrate = playerInstance.getVisualQuality().level.bitrate;
 		if (!bitrate) bitrate = 80000;
