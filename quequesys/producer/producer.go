@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"github.com/gorilla/mux"
+	"github.com/nsqio/go-nsq"
 )
 
 type ProducerConf struct {
@@ -21,12 +22,14 @@ type ProducerConf struct {
 
 type StreamPayload struct {
 	Tsclient int64  `json:"tsclient"`
+	Tsserver int64  `json:"tsserver"`
 	Sessid   string `json:"sessid"`
 	Value    string `json:"value"`
 	Label    string `json:"label"`
 }
 
 var confProducer ProducerConf = ProducerConf{}
+var nsqProducer *nsq.Producer = nil
 
 func main() {
 	// Read config
@@ -51,6 +54,16 @@ func main() {
 	fmt.Println("  NsqTopic: ", confProducer.NsqTopic)
 	fmt.Println("  Debug: ", confProducer.Debug)
 
+	nsqConfig := nsq.NewConfig()
+	nsqProducer, err = nsq.NewProducer(confProducer.NsqServer, nsqConfig)
+	if err != nil {
+		if nsqProducer != nil {
+			nsqProducer.Stop()
+		}
+		log.Fatalln("Error message system")
+		os.Exit(1)
+	}
+
 	// HTTP Server
 	r := mux.NewRouter()
 	r.Use(CORSHandler)
@@ -63,7 +76,16 @@ func main() {
 			return
 		}
 
-		fmt.Println(data)
+		payload, err := json.Marshal(data)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		if err = nsqProducer.Publish(confProducer.NsqTopic, payload); err != nil {
+			log.Println(err)
+			return
+		}
 	})
 
 	if err := http.ListenAndServe(":9000", r); err != nil {
