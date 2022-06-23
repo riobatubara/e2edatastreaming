@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"runtime"
 
 	"github.com/gorilla/mux"
 	"github.com/nsqio/go-nsq"
@@ -29,38 +30,37 @@ type StreamPayload struct {
 }
 
 var confProducer ProducerConf = ProducerConf{}
-var nsqProducer *nsq.Producer = nil
+var producer *nsq.Producer = nil
 
 func main() {
 	// Read config
 	narg := len(os.Args)
 	if narg < 2 {
-		log.Fatalln("Missing producer config file")
+		log.Fatalln("ERR::MISSING_ARGS")
 		os.Exit(1)
 	}
-	cfile, err := os.Open(os.Args[1])
+
+	cFile, err := os.Open(os.Args[1])
 	if err != nil {
-		log.Fatalln("Error open config file")
+		log.Fatalln("ERR::OPEN_CONFIG_FILE")
 		os.Exit(1)
 	}
-	byteValue, _ := ioutil.ReadAll(cfile)
+
+	byteValue, _ := ioutil.ReadAll(cFile)
 	json.Unmarshal(byteValue, &confProducer)
-	cfile.Close()
+	cFile.Close()
 
-	// Print config log
-	fmt.Println("Config:")
-	fmt.Println("  AppPort: ", confProducer.AppPort)
-	fmt.Println("  NsqServer:", confProducer.NsqServer)
-	fmt.Println("  NsqTopic: ", confProducer.NsqTopic)
-	fmt.Println("  Debug: ", confProducer.Debug)
+	log.Println("Configuration loaded")
+	log.Println("Connected to nsq server")
 
-	nsqConfig := nsq.NewConfig()
-	nsqProducer, err = nsq.NewProducer(confProducer.NsqServer, nsqConfig)
+	config := nsq.NewConfig()
+	producer, err = nsq.NewProducer(confProducer.NsqServer, config)
 	if err != nil {
-		if nsqProducer != nil {
-			nsqProducer.Stop()
+		if producer != nil {
+			log.Println("Disconnect from nsq server")
+			producer.Stop()
 		}
-		log.Fatalln("Error message system")
+		log.Fatalln("ERR::CONNECTING_NSQD")
 		os.Exit(1)
 	}
 
@@ -68,6 +68,9 @@ func main() {
 	r := mux.NewRouter()
 	r.Use(CORSHandler)
 	r.HandleFunc("/api/"+confProducer.AppKey, func(w http.ResponseWriter, r *http.Request) {
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+
 		var data []StreamPayload
 
 		if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
@@ -82,16 +85,23 @@ func main() {
 			return
 		}
 
-		if err = nsqProducer.Publish(confProducer.NsqTopic, payload); err != nil {
+		if err = producer.Publish(confProducer.NsqTopic, payload); err != nil {
 			log.Println(err)
 			return
 		}
+
+		log.Printf("%v", data)
+		log.Printf("alloc = %v MiB  totalAlloc = %v MiB  sys = %v MiB  numGC = %v MiB", bToMb(m.Alloc), bToMb(m.TotalAlloc), bToMb(m.Sys), m.NumGC)
 	})
 
-	if err := http.ListenAndServe(":9000", r); err != nil {
+	if err := http.ListenAndServe(":"+confProducer.AppPort, r); err != nil {
 		log.Fatalf(err.Error())
 		os.Exit(1)
 	}
+}
+
+func bToMb(b uint64) uint64 {
+	return b / 1024 / 1024
 }
 
 func CORSHandler(next http.Handler) http.Handler {
