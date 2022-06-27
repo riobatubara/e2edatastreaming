@@ -92,6 +92,7 @@ func main() {
 
 		log.Printf("%v", data)
 		log.Printf("alloc = %v MiB  totalAlloc = %v MiB  sys = %v MiB  numGC = %v MiB", bToMb(m.Alloc), bToMb(m.TotalAlloc), bToMb(m.Sys), m.NumGC)
+		runtime.GC()
 	})
 
 	if err := http.ListenAndServe(":"+confProducer.AppPort, r); err != nil {
